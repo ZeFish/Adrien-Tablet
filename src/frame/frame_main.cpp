@@ -1,101 +1,50 @@
 #include "frame_main.h"
-#include "frame_setting.h"
-#include "frame_keyboard.h"
-#include "frame_factorytest.h"
-#include "frame_wifiscan.h"
-#include "frame_lifegame.h"
-#include "frame_fileindex.h"
-#include "frame_compare.h"
-#include "frame_home.h"
-
-enum {
-    kKeyFactoryTest = 0,
-    kKeySetting,
-    kKeyKeyboard,
-    kKeyWifiScan,
-    kKeySDFile,
-    kKeyCompare,
-    kKeyHome,
-    kKeyLifeGame
-};
+#include <WiFi.h>
+#include "../apps/apps.h"
 
 #define KEY_W 92
 #define KEY_H 92
 
-void key_setting_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_Setting");
-    if (frame == NULL) {
-        frame = new Frame_Setting();
-        EPDGUI_AddFrame("Frame_Setting", frame);
+void key_app_launch_cb(epdgui_args_vector_t &args) {
+    AppBase* app = (AppBase*)(args[0]);
+    // For SystemAppWrapper, the init() handles the frame transition logic
+    // For a pure AppBase, we might need a standard way to push it. 
+    // Allowing the app to handle its own launch in init() seems flexible.
+    // However, init() is usually for UI setup inside the frame. 
+    // Frame_Base* frame = EPDGUI_GetFrame(app->GetFrameName());
+    // ...
+    
+    // Simplest: Just call init on the app instance? 
+    // No, EPDGUI manages frames. We need to push the frame.
+    // AppBase IS a Frame_Base.
+    
+    // Check if frame is already added? user apps might be new instances every time or singletons.
+    // The registry returns new instances. 
+    // Let's assume for now we just use the app instance directly.
+    
+    // Special handling for SystemAppWrapper which does tricky stuff.
+    // But standard AppBase should work like this:
+    if (app->GetFrameName().startsWith("Frame_")) {
+         // It's likely a wrapper or something already managed?
+         // Wrapper's init() does the push.
+         app->init(args);
+    } else {
+        // It's a new "One File" app
+        EPDGUI_PushFrame(app);
+        // We might need to ensure it's added to the system if EPDGUI needs lookups?
+        // EPDGUI_AddFrame(app->GetFrameName(), app); // Maybe needed?
     }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_keyboard_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_Keyboard");
-    if (frame == NULL) {
-        frame = new Frame_Keyboard(0);
-        EPDGUI_AddFrame("Frame_Keyboard", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_factorytest_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_FactoryTest");
-    if (frame == NULL) {
-        frame = new Frame_FactoryTest();
-        EPDGUI_AddFrame("Frame_FactoryTest", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_wifiscan_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_WifiScan");
-    if (frame == NULL) {
-        frame = new Frame_WifiScan();
-        EPDGUI_AddFrame("Frame_WifiScan", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_lifegame_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_Lifegame");
-    if (frame == NULL) {
-        frame = new Frame_Lifegame();
-        EPDGUI_AddFrame("Frame_Lifegame", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_sdfile_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = new Frame_FileIndex("/");
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_compare_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_Compare");
-    if (frame == NULL) {
-        frame = new Frame_Compare();
-        EPDGUI_AddFrame("Frame_Compare", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
-}
-
-void key_home_cb(epdgui_args_vector_t &args) {
-    Frame_Base *frame = EPDGUI_GetFrame("Frame_Home");
-    if (frame == NULL) {
-        frame = new Frame_Home();
-        EPDGUI_AddFrame("Frame_Home", frame);
-    }
-    EPDGUI_PushFrame(frame);
-    *((int *)(args[0])) = 0;
+    
+    // Note: The SystemAppWrapper implementation of init() handles PushFrame.
+    // So for now, we just call app->init(args);
+    // Wait, standard Frame_Base::init is for UI setup, NOT for pushing the frame.
+    // The wrapper was a hack.
+    
+    // Let's rely on the init wrapper hack for now for system apps.
+    // For new apps, we might need to adjust. 
+    // Actually, looking at SystemAppWrapper, it uses init() to do the push.
+    // So let's stick to that contract for this launcher.
+    app->init(args); 
 }
 
 Frame_Main::Frame_Main(void) : Frame_Base(false) {
@@ -110,137 +59,90 @@ Frame_Main::Frame_Main(void) : Frame_Base(false) {
     _names->createCanvas(540, 32);
     _names->setTextDatum(CC_DATUM);
 
-    for (int i = 0; i < 4; i++) {
-        _key[i] = new EPDGUI_Button("测试", 20 + i * 136, 90, KEY_W, KEY_H);
+    // Load Apps
+    _apps = AppRegistry::GetApps();
+
+    // Create Buttons Grid
+    int col = 0;
+    int row = 0;
+    for (int i = 0; i < _apps.size(); i++) {
+        EPDGUI_Button* btn = new EPDGUI_Button(20 + col * 136, 90 + row * 150, KEY_W, KEY_H);
+        
+        btn->CanvasNormal()->pushImage(0, 0, 92, 92, _apps[i]->GetIcon());
+        *(btn->CanvasPressed()) = *(btn->CanvasNormal());
+        btn->CanvasPressed()->ReverseColor();
+        
+        // Bind Launch Callback
+        btn->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0, _apps[i]);
+        btn->Bind(EPDGUI_Button::EVENT_RELEASED, key_app_launch_cb);
+        
+        _home_keys.push_back(btn);
+
+        col++;
+        if (col >= 4) {
+            col = 0;
+            row++;
+        }
     }
-
-    for (int i = 0; i < 4; i++) {
-        _key[i + 4] =
-            new EPDGUI_Button("测试", 20 + i * 136, 240, KEY_W, KEY_H);
-    }
-
-    _key[kKeySetting]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_setting_92x92);
-    *(_key[kKeySetting]->CanvasPressed()) =
-        *(_key[kKeySetting]->CanvasNormal());
-    _key[kKeySetting]->CanvasPressed()->ReverseColor();
-    _key[kKeySetting]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                               (void *)(&_is_run));
-    _key[kKeySetting]->Bind(EPDGUI_Button::EVENT_RELEASED, key_setting_cb);
-
-    _key[kKeyKeyboard]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_keyboard_92x92);
-    *(_key[kKeyKeyboard]->CanvasPressed()) =
-        *(_key[kKeyKeyboard]->CanvasNormal());
-    _key[kKeyKeyboard]->CanvasPressed()->ReverseColor();
-    _key[kKeyKeyboard]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                                (void *)(&_is_run));
-    _key[kKeyKeyboard]->Bind(EPDGUI_Button::EVENT_RELEASED, key_keyboard_cb);
-
-    _key[kKeyFactoryTest]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_factorytest_92x92);
-    *(_key[kKeyFactoryTest]->CanvasPressed()) =
-        *(_key[kKeyFactoryTest]->CanvasNormal());
-    _key[kKeyFactoryTest]->CanvasPressed()->ReverseColor();
-    _key[kKeyFactoryTest]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                                   (void *)(&_is_run));
-    _key[kKeyFactoryTest]->Bind(EPDGUI_Button::EVENT_RELEASED,
-                                key_factorytest_cb);
-
-    _key[kKeyWifiScan]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_wifi_92x92);
-    *(_key[kKeyWifiScan]->CanvasPressed()) =
-        *(_key[kKeyWifiScan]->CanvasNormal());
-    _key[kKeyWifiScan]->CanvasPressed()->ReverseColor();
-    _key[kKeyWifiScan]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                                (void *)(&_is_run));
-    _key[kKeyWifiScan]->Bind(EPDGUI_Button::EVENT_RELEASED, key_wifiscan_cb);
-
-    _key[kKeyLifeGame]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_lifegame_92x92);
-    *(_key[kKeyLifeGame]->CanvasPressed()) =
-        *(_key[kKeyLifeGame]->CanvasNormal());
-    _key[kKeyLifeGame]->CanvasPressed()->ReverseColor();
-    _key[kKeyLifeGame]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                                (void *)(&_is_run));
-    _key[kKeyLifeGame]->Bind(EPDGUI_Button::EVENT_RELEASED, key_lifegame_cb);
-
-    _key[kKeySDFile]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_sdcard_92x92);
-    *(_key[kKeySDFile]->CanvasPressed()) = *(_key[kKeySDFile]->CanvasNormal());
-    _key[kKeySDFile]->CanvasPressed()->ReverseColor();
-    _key[kKeySDFile]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                              (void *)(&_is_run));
-    _key[kKeySDFile]->Bind(EPDGUI_Button::EVENT_RELEASED, key_sdfile_cb);
-
-    _key[kKeyCompare]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_compare_92x92);
-    *(_key[kKeyCompare]->CanvasPressed()) =
-        *(_key[kKeyCompare]->CanvasNormal());
-    _key[kKeyCompare]->CanvasPressed()->ReverseColor();
-    _key[kKeyCompare]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                               (void *)(&_is_run));
-    _key[kKeyCompare]->Bind(EPDGUI_Button::EVENT_RELEASED, key_compare_cb);
-
-    _key[kKeyHome]->CanvasNormal()->pushImage(
-        0, 0, 92, 92, ImageResource_main_icon_home_92x92);
-    *(_key[kKeyHome]->CanvasPressed()) = *(_key[kKeyHome]->CanvasNormal());
-    _key[kKeyHome]->CanvasPressed()->ReverseColor();
-    _key[kKeyHome]->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0,
-                            (void *)(&_is_run));
-    _key[kKeyHome]->Bind(EPDGUI_Button::EVENT_RELEASED, key_home_cb);
 
     _time             = 0;
     _next_update_time = 0;
 }
 
 Frame_Main::~Frame_Main(void) {
-    for (int i = 0; i < 8; i++) {
-        delete _key[i];
+    for (int i = 0; i < _home_keys.size(); i++) {
+        delete _home_keys[i];
+    }
+    // We own the app instances created by registry?
+    // Yes, typical ownership transfer.
+    for (int i = 0; i < _apps.size(); i++) {
+        delete _apps[i];
     }
 }
 
 void Frame_Main::AppName(m5epd_update_mode_t mode) {
-    if (!_names->isRenderExist(20)) {
-        _names->createRender(20, 26);
+    // Dynamic Name Drawing
+    // We need to clear lines where names are valid.
+    // The original code used 2 strips: Y=186 and Y=337.
+    // 90 + 92 = 182. So 186 is below the first row. 
+    // Row 0 Y=90. Name Y approx 90+92+4 = 186.
+    // Row 1 Y=90 + 150 = 240. Name Y approx 240+92+4 = 336.
+    
+    // We can just iterate and draw names for each. 
+    // Re-creating _names canvas for each row or using a full screen overlay?
+    // The original used a strip canvas "createRender(20, 26)".
+    
+    // Let's try to replicate the original look but dynamically.
+    // _names was passed 'mode'.
+    
+    // Drawing names is tricky with partial updates if we don't know the exact layout.
+    // Let's assume standard grid rows.
+    
+    for (int r = 0; r <= (_apps.size() - 1) / 4; r++) {
+        int y_pos = 186 + r * 150; // 186, 336...
+        
+        _names->createRender(20, 26); // Why this size? Original logic.
+        _names->setTextSize(26);
+        _names->fillCanvas(0);
+        
+        for (int c = 0; c < 4; c++) {
+            int idx = r * 4 + c;
+            if (idx >= _apps.size()) break;
+            
+            String name = _apps[idx]->GetAppName();
+            // Localize if needed, relying on AppBase to provide localized name?
+            // For now, raw name.
+            
+            // Fix specific system names if we want translation, 
+            // but for "One File App" users will just provide string.
+            // The SystemAppWrapper passes the frame name "Frame_Setting".
+            // We might want to clean that up in the wrapper or here.
+            name.replace("Frame_", ""); 
+            
+            _names->drawString(name, 20 + 46 + c * 136, 16);
+        }
+        _names->pushCanvas(0, y_pos, mode);
     }
-    _names->setTextSize(20);
-    _names->fillCanvas(0);
-    uint8_t language = GetLanguage();
-    _names->drawString("WLAN", 20 + 46 + 3 * 136, 16);
-    if (language == LANGUAGE_JA) {
-        _names->drawString("工場テスト", 20 + 46, 16);
-        _names->drawString("設定", 20 + 46 + 136, 16);
-        _names->drawString("鍵盤", 20 + 46 + 2 * 136, 16);
-    } else if (language == LANGUAGE_ZH) {
-        _names->drawString("出厂测试", 20 + 46, 16);
-        _names->drawString("设定", 20 + 46 + 136, 16);
-        _names->drawString("键盘", 20 + 46 + 2 * 136, 16);
-    } else {
-        _names->drawString("Test", 20 + 46, 16);
-        _names->drawString("Setting", 20 + 46 + 136, 16);
-        _names->drawString("Keyboard", 20 + 46 + 2 * 136, 16);
-    }
-    _names->pushCanvas(0, 186, mode);
-
-    _names->fillCanvas(0);
-    if (language == LANGUAGE_JA) {
-        _names->drawString("メモリー", 20 + 46, 16);
-        _names->drawString("刷新比較", 20 + 46 + 136, 16);
-        _names->drawString("家", 20 + 46 + 2 * 136, 16);
-        _names->drawString("ライフゲーム", 20 + 46 + 3 * 136, 16);
-    } else if (language == LANGUAGE_ZH) {
-        _names->drawString("存储", 20 + 46, 16);
-        _names->drawString("刷新比较", 20 + 46 + 136, 16);
-        _names->drawString("家", 20 + 46 + 2 * 136, 16);
-        _names->drawString("生命游戏", 20 + 46 + 3 * 136, 16);
-    } else {
-        _names->drawString("Storage", 20 + 46, 16);
-        _names->drawString("Compare", 20 + 46 + 136, 16);
-        _names->drawString("Home", 20 + 46 + 2 * 136, 16);
-        _names->drawString("LifeGame", 20 + 46 + 3 * 136, 16);
-    }
-    _names->pushCanvas(0, 337, mode);
 }
 
 void Frame_Main::StatusBar(m5epd_update_mode_t mode) {
@@ -251,7 +153,7 @@ void Frame_Main::StatusBar(m5epd_update_mode_t mode) {
     _bar->fillCanvas(0);
     _bar->drawFastHLine(0, 43, 540, 15);
     _bar->setTextDatum(CL_DATUM);
-    _bar->drawString("Adrien", 10, 27);
+    _bar->drawString("M5Paper", 10, 27);
 
     // Battery
     _bar->setTextDatum(CR_DATUM);
@@ -272,10 +174,12 @@ void Frame_Main::StatusBar(m5epd_update_mode_t mode) {
     }
     uint8_t px = battery * 25;
     sprintf(buf, "%d%%", (int)(battery * 100));
-    // _bar->drawString(buf, 498 - 10, 27);
     _bar->fillRect(498 + 3, 8 + 10, px, 13, 15);
-    // _bar->pushImage(498, 8, 32, 32, 2,
-    // ImageResource_status_bar_battery_charging_32x32);
+
+    // WiFi Icon
+    if (WiFi.status() == WL_CONNECTED) {
+        _bar->pushImage(450, 8, 32, 32, ImageResource_item_icon_wifi_3_32x32);
+    }
 
     // Time
     rtc_time_t time_struct;
@@ -294,8 +198,8 @@ void Frame_Main::StatusBar(m5epd_update_mode_t mode) {
 int Frame_Main::init(epdgui_args_vector_t &args) {
     _is_run = 1;
     M5.EPD.WriteFullGram4bpp(GetWallpaper());
-    for (int i = 0; i < 8; i++) {
-        EPDGUI_AddObject(_key[i]);
+    for (int i = 0; i < _home_keys.size(); i++) {
+        EPDGUI_AddObject(_home_keys[i]);
     }
     _time             = 0;
     _next_update_time = 0;
@@ -305,7 +209,12 @@ int Frame_Main::init(epdgui_args_vector_t &args) {
 }
 
 int Frame_Main::run() {
-    Frame_Base::run();
+    // Calling Frame_Base::run() might duplicate status bar logic 
+    // if Frame_Base has DrawStatusBar now. 
+    // But Frame_Base::run() is useful for power save.
+    Frame_Base::run(); 
+    // Frame_Main has its own custom StatusBar implementation (different layout).
+    // We should ensure they don't fight. Frame_Base::DrawStatusBar checks time.
     StatusBar(UPDATE_MODE_GL16);
     return 1;
 }
