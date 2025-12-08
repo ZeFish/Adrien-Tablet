@@ -33,3 +33,6 @@
 
 .pio
 .vscode
+
+
+src/wifi_secrets.h

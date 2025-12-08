@@ -2,6 +2,8 @@
 #include "./resources/ImageResource.h"
 #include "esp32-hal-log.h"
 #include <WiFi.h>
+#include "wifi_secrets.h"
+#include <SD.h>
 
 #define DEFAULT_WALLPAPER 2
 SemaphoreHandle_t _xSemaphore_LoadingAnime = NULL;
@@ -109,6 +111,11 @@ const char *GetWallpaperName(uint16_t wallpaper_id) {
 }
 
 esp_err_t LoadSetting(void) {
+    #ifdef HARDCODED_WIFI_SSID
+    global_wifi_ssid = HARDCODED_WIFI_SSID;
+    global_wifi_password = HARDCODED_WIFI_PASSWORD;
+    global_wifi_configed = true;
+    #endif
     nvs_handle nvs_arg;
     NVS_CHECK(nvs_open("Setting", NVS_READONLY, &nvs_arg));
     NVS_CHECK(nvs_get_u16(nvs_arg, "Wallpaper", &global_wallpaper));
@@ -120,6 +127,7 @@ esp_err_t LoadSetting(void) {
         global_wallpaper = DEFAULT_WALLPAPER;
     }
 
+    #ifndef HARDCODED_WIFI_SSID
     size_t length = 128;
     char buf[128];
     NVS_CHECK(nvs_get_str(nvs_arg, "ssid", buf, &length));
@@ -131,6 +139,7 @@ esp_err_t LoadSetting(void) {
     NVS_CHECK(nvs_get_str(nvs_arg, "pswd", buf, &length));
     global_wifi_password = String(buf);
     global_wifi_configed = true;
+    #endif
     nvs_close(nvs_arg);
     return ESP_OK;
 }
@@ -267,8 +276,29 @@ void LoadingAnime_32x32_Stop() {
 void Shutdown() {
     log_d("Now the system is shutting down.");
     M5.EPD.Clear();
-    M5.EPD.WritePartGram4bpp(92, 182, 356, 300, ImageResource_logo_356x300);
-    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+    
+    bool custom_wallpaper = false;
+    
+    // Check for custom wallpaper
+    if (SD.exists("/wallpaper.jpg")) {
+        M5EPD_Canvas canvas(&M5.EPD);
+        canvas.createCanvas(540, 960);
+        canvas.drawJpgFile(SD, "/wallpaper.jpg");
+        canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
+        custom_wallpaper = true;
+    } else if (SD.exists("/wallpaper.png")) {
+        M5EPD_Canvas canvas(&M5.EPD);
+        canvas.createCanvas(540, 960);
+        canvas.drawPngFile(SD, "/wallpaper.png");
+        canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
+        custom_wallpaper = true;
+    }
+
+    if (!custom_wallpaper) {
+        M5.EPD.WritePartGram4bpp(92, 182, 356, 300, ImageResource_logo_356x300);
+        M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+    }
+    
     M5.EPD.UpdateFull(UPDATE_MODE_GC16);
     SaveSetting();
     delay(600);

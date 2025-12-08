@@ -1,4 +1,5 @@
 #include "frame_home.h"
+#include "frame_home_callbacks.h"
 
 void Frame_Home::InitSwitch(EPDGUI_Switch *sw, String title, String subtitle,
                             const uint8_t *img1, const uint8_t *img2) {
@@ -15,43 +16,7 @@ void Frame_Home::InitSwitch(EPDGUI_Switch *sw, String title, String subtitle,
     sw->Canvas(1)->pushImage(68, 20, 92, 92, img2);
 }
 
-void key_home_air_adjust_cb(epdgui_args_vector_t &args) {
-    int operation     = ((EPDGUI_Button *)(args[0]))->GetCustomString().toInt();
-    EPDGUI_Switch *sw = ((EPDGUI_Switch *)(args[1]));
-    if (sw->getState() == 0) {
-        return;
-    }
-    int temp = sw->GetCustomString().toInt();
-    char buf[10];
-    if (operation == 1) {
-        temp++;
 
-    } else {
-        temp--;
-    }
-    sprintf(buf, "%d", temp);
-    sw->SetCustomString(buf);
-    sprintf(buf, "%d℃", temp);
-    sw->Canvas(1)->setTextSize(36);
-    sw->Canvas(1)->setTextDatum(TC_DATUM);
-    sw->Canvas(1)->fillRect(114 - 100, 108, 200, 38, 0);
-    sw->Canvas(1)->drawString(buf, 114, 108);
-    sw->Canvas(1)->pushCanvas(sw->getX(), sw->getY(), UPDATE_MODE_A2);
-}
-
-void key_home_air_state0_cb(epdgui_args_vector_t &args) {
-    EPDGUI_Button *b1 = ((EPDGUI_Button *)(args[0]));
-    EPDGUI_Button *b2 = ((EPDGUI_Button *)(args[1]));
-    b1->SetEnable(false);
-    b2->SetEnable(false);
-}
-
-void key_home_air_state1_cb(epdgui_args_vector_t &args) {
-    EPDGUI_Button *b1 = ((EPDGUI_Button *)(args[0]));
-    EPDGUI_Button *b2 = ((EPDGUI_Button *)(args[1]));
-    b1->SetEnable(true);
-    b2->SetEnable(true);
-}
 
 Frame_Home::Frame_Home(void) {
     _frame_name = "Frame_Home";
@@ -127,13 +92,15 @@ Frame_Home::Frame_Home(void) {
         InitSwitch(_sw_light2, "Table Lamp", "Bedroom",
                    ImageResource_home_icon_light_off_92x92,
                    ImageResource_home_icon_light_on_92x92);
-        InitSwitch(_sw_socket1, "Rice Cooker", "Kitchen",
-                   ImageResource_home_icon_socket_off_92x92,
-                   ImageResource_home_icon_socket_on_92x92);
         InitSwitch(_sw_socket2, "Computer", "Bedroom",
                    ImageResource_home_icon_socket_off_92x92,
                    ImageResource_home_icon_socket_on_92x92);
     }
+
+    _sw_light2->AddArgs(0, 0, _sw_light2);
+    _sw_light2->Bind(0, key_home_light_cb);
+    _sw_light2->AddArgs(1, 0, _sw_light2);
+    _sw_light2->Bind(1, key_home_light_cb);
 
     memcpy(_sw_air_1->Canvas(0)->frameBuffer(),
            ImageResource_home_air_background_228x184, 228 * 184 / 2);
