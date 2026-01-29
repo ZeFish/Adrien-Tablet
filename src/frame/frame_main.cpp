@@ -7,44 +7,9 @@
 
 void key_app_launch_cb(epdgui_args_vector_t &args) {
     AppBase* app = (AppBase*)(args[0]);
-    // For SystemAppWrapper, the init() handles the frame transition logic
-    // For a pure AppBase, we might need a standard way to push it. 
-    // Allowing the app to handle its own launch in init() seems flexible.
-    // However, init() is usually for UI setup inside the frame. 
-    // Frame_Base* frame = EPDGUI_GetFrame(app->GetFrameName());
-    // ...
-    
-    // Simplest: Just call init on the app instance? 
-    // No, EPDGUI manages frames. We need to push the frame.
-    // AppBase IS a Frame_Base.
-    
-    // Check if frame is already added? user apps might be new instances every time or singletons.
-    // The registry returns new instances. 
-    // Let's assume for now we just use the app instance directly.
-    
-    // Special handling for SystemAppWrapper which does tricky stuff.
-    // But standard AppBase should work like this:
-    if (app->GetFrameName().startsWith("Frame_")) {
-         // It's likely a wrapper or something already managed?
-         // Wrapper's init() does the push.
-         app->init(args);
-    } else {
-        // It's a new "One File" app
-        EPDGUI_PushFrame(app);
-        // We might need to ensure it's added to the system if EPDGUI needs lookups?
-        // EPDGUI_AddFrame(app->GetFrameName(), app); // Maybe needed?
-    }
-    
-    // Note: The SystemAppWrapper implementation of init() handles PushFrame.
-    // So for now, we just call app->init(args);
-    // Wait, standard Frame_Base::init is for UI setup, NOT for pushing the frame.
-    // The wrapper was a hack.
-    
-    // Let's rely on the init wrapper hack for now for system apps.
-    // For new apps, we might need to adjust. 
-    // Actually, looking at SystemAppWrapper, it uses init() to do the push.
-    // So let's stick to that contract for this launcher.
-    app->init(args); 
+    Frame_Base* target = app->GetTargetFrame();
+    EPDGUI_PushFrame(target);
+    *((int *)(args[1])) = 0; // Stop Frame_Main
 }
 
 Frame_Main::Frame_Main(void) : Frame_Base(false) {
@@ -74,6 +39,7 @@ Frame_Main::Frame_Main(void) : Frame_Base(false) {
         
         // Bind Launch Callback
         btn->AddArgs(EPDGUI_Button::EVENT_RELEASED, 0, _apps[i]);
+        btn->AddArgs(EPDGUI_Button::EVENT_RELEASED, 1, (void *)(&_is_run));
         btn->Bind(EPDGUI_Button::EVENT_RELEASED, key_app_launch_cb);
         
         _home_keys.push_back(btn);

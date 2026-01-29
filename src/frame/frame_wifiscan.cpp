@@ -125,24 +125,21 @@ int Frame_WifiScan::scan() {
 
     int connect_wifi_idx = -1;
     if (_connected) {
-        for (int i = 0; i < wifi_num; i++) {
-            String ssid = WiFi.SSID(i);
-
-            if (ssid == _connect_ssid) {
-                connect_wifi_idx = i;
-                if (WiFi.RSSI(i) < -90) {
-                    connect_wifi_idx = -1;
-                }
-                break;
-            }
-        }
-        if (connect_wifi_idx == -1) {
-            WiFi.disconnect();
-            _key_wifi[0]->SetEnable(true);
-            _connected = 0;
-            for (int i = 1; i < MAX_BTN_NUM; i++) {
+        // Verify we are still actually connected
+        if (WiFi.status() != WL_CONNECTED || WiFi.SSID() != _connect_ssid) {
+             _connected = 0;
+             _key_wifi[0]->SetEnable(true);
+             for (int i = 1; i < MAX_BTN_NUM; i++) {
                 _key_wifi[i]->SetPos(_key_wifi[i]->getX(),
                                      _key_wifi[i]->getY() - 32);
+            }
+        } else {
+            // Just find the index to hide it from the list
+            for (int i = 0; i < wifi_num; i++) {
+                if (WiFi.SSID(i) == _connect_ssid) {
+                    connect_wifi_idx = i;
+                    break;
+                }
             }
         }
     }

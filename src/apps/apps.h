@@ -4,6 +4,7 @@
 #include <vector>
 #include "app_base.h"
 #include "system_apps.h"
+#include "HomeControl.h"
 
 // Include your app headers here
 // #include "my_app.h"
@@ -14,7 +15,8 @@ public:
         std::vector<AppBase*> apps;
         
         // Default System Apps
-        apps.push_back(new SystemAppWrapper("Frame_Home", ImageResource_main_icon_home_92x92, Factory_Home));
+        // apps.push_back(new SystemAppWrapper("Frame_Home", ImageResource_main_icon_home_92x92, Factory_Home));
+        apps.push_back(new HomeControlApp());
         apps.push_back(new SystemAppWrapper("Frame_Setting", ImageResource_main_icon_setting_92x92, Factory_Setting));
         apps.push_back(new SystemAppWrapper("Frame_Keyboard", ImageResource_main_icon_keyboard_92x92, Factory_Keyboard));
         apps.push_back(new SystemAppWrapper("Frame_FactoryTest", ImageResource_main_icon_factorytest_92x92, Factory_FactoryTest));

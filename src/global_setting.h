@@ -10,10 +10,10 @@
 // 是否开启自动关机省电
 #define ENABLE_AUTO_POWER_SAVE true
 
-// 1分钟提醒即将关机
-static const uint32_t TIME_BEFORE_SHUTDOWN_PROMPT_MS = 60 * 1000;
-// 显示10秒钟的关机提示
-static const uint32_t SHUTDOWN_PROMPT_DELAY_MS = 10 * 1000;
+// 5分钟提醒即将关机 (5 minutes before shutdown prompt)
+static const uint32_t TIME_BEFORE_SHUTDOWN_PROMPT_MS = 5 * 60 * 1000;
+// 显示30秒钟的关机提示 (Show shutdown prompt for 30 seconds)
+static const uint32_t SHUTDOWN_PROMPT_DELAY_MS = 30 * 1000;
 // 最终关机时间
 static const uint32_t TIME_BEFORE_SHUTDOWN_MS =
     TIME_BEFORE_SHUTDOWN_PROMPT_MS + SHUTDOWN_PROMPT_DELAY_MS;

@@ -25,17 +25,16 @@ public:
     const uint8_t* GetIcon() override { return _icon; }
     String GetAppName() override { return _name; }
 
-    int init(epdgui_args_vector_t &args) override {
-        // This is a bit of a hack to bridge the old system to the new one
-        // Ideally we would just return the Frame object, but the old system 
-        // expects frames to be managed by EPDGUI_AddFrame.
-        // We can just create the frame and push it here.
+    Frame_Base* GetTargetFrame() override {
         Frame_Base* frame = EPDGUI_GetFrame(_name);
         if (frame == NULL) {
             frame = _factory();
             EPDGUI_AddFrame(_name, frame);
         }
-        EPDGUI_PushFrame(frame);
+        return frame;
+    }
+
+    int init(epdgui_args_vector_t &args) override {
         return 0;
     }
 };

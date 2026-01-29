@@ -121,11 +121,8 @@ void SysInit_Start(void) {
     }
     taskYIELD();
 
-    if (is_factory_test) {
-        SysInit_UpdateInfo("$OK");
-    } else {
-        SysInit_UpdateInfo("Initializing system...");
-    }
+    // Always show initializing message, regardless of factory test mode
+    SysInit_UpdateInfo("Initializing system...");
     taskYIELD();
 
     _initcanvas.createRender(26, 128);
@@ -134,6 +131,9 @@ void SysInit_Start(void) {
     EPDGUI_PushFrame(frame_main);
     Frame_FactoryTest *frame_factorytest = new Frame_FactoryTest();
     EPDGUI_AddFrame("Frame_FactoryTest", frame_factorytest);
+    
+    Frame_WifiScan *frame_wifiscan = NULL;
+    
     if (!is_factory_test) {
         Frame_Setting *frame_setting = new Frame_Setting();
         EPDGUI_AddFrame("Frame_Setting", frame_setting);
@@ -144,7 +144,7 @@ void SysInit_Start(void) {
         EPDGUI_AddFrame("Frame_Setting_Language", frame_language);
         Frame_Keyboard *frame_keyboard = new Frame_Keyboard(0);
         EPDGUI_AddFrame("Frame_Keyboard", frame_keyboard);
-        Frame_WifiScan *frame_wifiscan = new Frame_WifiScan();
+        frame_wifiscan = new Frame_WifiScan();
         EPDGUI_AddFrame("Frame_WifiScan", frame_wifiscan);
         Frame_WifiPassword *frame_wifipassword = new Frame_WifiPassword();
         EPDGUI_AddFrame("Frame_WifiPassword", frame_wifipassword);
@@ -154,24 +154,33 @@ void SysInit_Start(void) {
         EPDGUI_AddFrame("Frame_Compare", frame_compare);
         Frame_Home *frame_home = new Frame_Home();
         EPDGUI_AddFrame("Frame_Home", frame_home);
+    }
 
-        if (isWiFiConfiged()) {
-            SysInit_UpdateInfo("Connect to " + GetWifiSSID() + "...");
-            WiFi.begin(GetWifiSSID().c_str(), GetWifiPassword().c_str());
-            uint32_t t = millis();
-            while (1) {
-                if (millis() - t > 8000) {
-                    break;
-                }
-
-                if (WiFi.status() == WL_CONNECTED) {
-                    frame_wifiscan->SetConnected(GetWifiSSID(), WiFi.RSSI());
-                    break;
-                }
-
-                vTaskDelay(500);
+    // WiFi initialization - happens regardless of factory test mode
+    if (isWiFiConfiged()) {
+        SysInit_UpdateInfo("Connect to " + GetWifiSSID() + "...");
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(GetWifiSSID().c_str(), GetWifiPassword().c_str());
+        uint32_t t = millis();
+        while (1) {
+            if (millis() - t > 15000) {
+                log_w("WiFi connection timeout");
+                break;
             }
+
+            if (WiFi.status() == WL_CONNECTED) {
+                log_i("WiFi connected to %s", GetWifiSSID().c_str());
+                if (frame_wifiscan != NULL) {
+                    frame_wifiscan->SetConnected(GetWifiSSID(), WiFi.RSSI());
+                }
+                frame_main->StatusBar(UPDATE_MODE_GL16);
+                break;
+            }
+
+            vTaskDelay(500);
         }
+    } else {
+        log_w("WiFi not configured - skipping connection");
     }
 
     log_d("done");
@@ -180,9 +189,8 @@ void SysInit_Start(void) {
         vTaskDelay(100);
     }
 
-    if (!is_factory_test) {
-        SysInit_UpdateInfo("$OK");
-    }
+    // Always send $OK to dismiss loading screen
+    SysInit_UpdateInfo("$OK");
 
     Serial.println("OK");
 

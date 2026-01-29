@@ -21,6 +21,12 @@ public:
         return _frame_name;
     }
 
+    // Returns the frame to be pushed to the stack. 
+    // Usually 'this', but wrappers can return the underlying frame.
+    virtual Frame_Base* GetTargetFrame() {
+        return this;
+    }
+
     // Required by Frame_Base, but we can provide a default empty impl
     virtual int init(epdgui_args_vector_t &args) {
         _is_run = 1;
