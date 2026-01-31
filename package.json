@@ -1,0 +1,21 @@
+{
+    "name": "adrien-tablet",
+    "version": "1.0.0",
+    "description": "Adrien Tablet Firmware",
+    "scripts": {
+        "build": "pio run",
+        "upload": "pio run --target upload",
+        "monitor": "pio device monitor",
+        "dev": "pio run --target upload && pio device monitor",
+        "clean": "pio run --target clean",
+        "check-updates": "pio pkg outdated",
+        "update": "pio pkg update"
+    },
+    "keywords": [
+        "platformio",
+        "m5stack",
+        "esp32"
+    ],
+    "author": "",
+    "license": "ISC"
+}
