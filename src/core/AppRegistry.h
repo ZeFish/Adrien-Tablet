@@ -14,7 +14,7 @@
 #include "apps/Media/frame_txtreader.h"
 #include "apps/Utilities/frame_compare.h"
 #include "apps/Media/frame_pictureviewer.h"
-#include "apps/media/PhotoApp.h"
+#include "apps/Media/PhotoApp.h"
 
 
 #endif

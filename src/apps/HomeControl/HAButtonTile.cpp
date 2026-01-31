@@ -201,14 +201,19 @@ void HAButtonTile::onSwitchChanged(int state) {
         String vars = (state == 1) ? _cfg.onVars : _cfg.offVars;
         if (vars.length() == 0 && _cfg.paramIsNumeric) {
             // Build numeric variable JSON using paramName
-            vars = String("{") + "\"" + _cfg.paramName + "\":" + String(_param) + String("}");
+            char varBuf[64];
+            snprintf(varBuf, sizeof(varBuf), "{\"%s\":%d}", _cfg.paramName.c_str(), _param);
+            vars = String(varBuf);
         }
 
-        String payload = String("{\"entity_id\":\"") + _cfg.entity + String("\"") ;
+        char payloadBuf[512];
         if (vars.length()) {
-            payload += String(", \"variables\": ") + vars;
+            snprintf(payloadBuf, sizeof(payloadBuf), "{\"entity_id\":\"%s\", \"variables\": %s}", _cfg.entity.c_str(), vars.c_str());
+        } else {
+            snprintf(payloadBuf, sizeof(payloadBuf), "{\"entity_id\":\"%s\"}", _cfg.entity.c_str());
         }
-        payload += String("}");
+        String payload = String(payloadBuf);
+
         Serial.print("HAButtonTile: script toggle payload: ");
         Serial.println(payload);
         ha_call_service_payload("script", "turn_on", payload);
@@ -220,13 +225,20 @@ void HAButtonTile::onSwitchChanged(int state) {
         if (state == 1) {
             String vars = _cfg.onVars;
             if (vars.length() == 0 && _cfg.paramIsNumeric) {
-                vars = String("{") + "\"" + _cfg.paramName + "\":" + String(_param) + String("}");
+                // Build numeric variable JSON using paramName
+                char varBuf[64];
+                snprintf(varBuf, sizeof(varBuf), "{\"%s\":%d}", _cfg.paramName.c_str(), _param);
+                vars = String(varBuf);
             }
-            String payload = String("{\"entity_id\":\"") + _cfg.entity + String("\"") ;
+
+            char payloadBuf[512];
             if (vars.length()) {
-                payload += String(", \"variables\": ") + vars;
+                snprintf(payloadBuf, sizeof(payloadBuf), "{\"entity_id\":\"%s\", \"variables\": %s}", _cfg.entity.c_str(), vars.c_str());
+            } else {
+                snprintf(payloadBuf, sizeof(payloadBuf), "{\"entity_id\":\"%s\"}", _cfg.entity.c_str());
             }
-            payload += String("}");
+            String payload = String(payloadBuf);
+
             Serial.print("HAButtonTile: script button payload: ");
             Serial.println(payload);
             ha_call_service_payload("script", "turn_on", payload);
