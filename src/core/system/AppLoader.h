@@ -15,7 +15,7 @@
 #endif
 
 // Include your app headers here
-#include "apps/media/PhotoApp.h"
+#include "apps/Media/PhotoApp.h"
 // #include "my_app.h"
 
 class AppRegistry {
