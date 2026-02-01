@@ -81,6 +81,11 @@ void Frame_FileIndex::listDir(fs::FS &fs, const char *dirname) {
         } else {
             files.push_back(std::make_pair(String(file.name()), file.size()));
         }
+
+        // Optimize: Only read files needed for the current page
+        if (floders.size() + files.size() > MAX_BTN_NUM) {
+            break;
+        }
     }
 
     for (int n = 0; n < floders.size(); n++) {
