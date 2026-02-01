@@ -19,6 +19,7 @@ const uint8_t* PhotoApp::GetIcon() {
 int PhotoApp::init(M5EPD_Canvas* canvas, epdgui_args_vector_t &args) {
     _canvas = canvas;
     _is_run = 1;
+    _wallpaper_set_msg_start_time = 0;
     
     LoadPhotos();
     
@@ -87,6 +88,9 @@ static bool getJpegSize(fs::FS &fs, const char *path, uint16_t *width, uint16_t 
 void PhotoApp::DrawPhoto(bool update) {
     if (_photos.empty()) return;
     
+    // Clear timer if manual redraw happens
+    _wallpaper_set_msg_start_time = 0;
+
     _canvas->fillCanvas(0);
     
     String path = _photos[_current_photo_index];
@@ -132,6 +136,12 @@ void PhotoApp::DrawPhoto(bool update) {
 }
 
 int PhotoApp::run() {
+    // Check message timer
+    if (_wallpaper_set_msg_start_time > 0 && millis() - _wallpaper_set_msg_start_time > 1000) {
+        _wallpaper_set_msg_start_time = 0;
+        DrawPhoto();
+    }
+
     M5.update();
     
     // G37 (Left Button) - Prev
@@ -175,8 +185,7 @@ int PhotoApp::run() {
                     _canvas->setTextDatum(CC_DATUM);
                     _canvas->drawString("Wallpaper Set!", 270, 450);
                     _canvas->pushCanvas(0, 0, UPDATE_MODE_DU);
-                    delay(1000);
-                    DrawPhoto();
+                    _wallpaper_set_msg_start_time = millis();
                 }
             }
         }

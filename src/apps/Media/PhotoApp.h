@@ -32,6 +32,8 @@ private:
     uint32_t _btn_press_start_time = 0;
     bool _long_press_triggered = false;
     bool _touch_was_down = false;
+
+    uint32_t _wallpaper_set_msg_start_time = 0;
 };
 
 #endif
