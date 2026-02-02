@@ -2,6 +2,7 @@
 #include <map>
 #include <list>
 #include "epdgui.h"
+#include "core/system/ha_api.h"
 
 StatusBar* g_status_bar = NULL;
 M5EPD_Canvas* g_epd_canvas = NULL;
@@ -98,6 +99,8 @@ void EPDGUI_MainLoop(void) {
         
         // Main loop for the frame
         while (1) {
+            ha_update();
+
             if (frame->isRun() == 0) {
                 frame->exit();
                 log_d("Exit %s", frame->GetFrameName().c_str());

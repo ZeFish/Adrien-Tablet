@@ -12,4 +12,7 @@ String ha_get_state(String entity_id);
 // Fetch a specific attribute from an entity
 String ha_get_attribute(String entity_id, String attribute);
 
+// Process pending state checks (call this in the main loop)
+void ha_update();
+
 #endif // _HA_API_H_
