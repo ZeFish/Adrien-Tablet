@@ -1,6 +1,94 @@
 #include "core/system/ha_api.h"
 #include <HTTPClient.h>
+#include <list>
 #include "core/system/wifi_secrets.h"
+
+struct PendingCheck {
+    String entity_id;
+    String expected_state;
+    unsigned long next_check_time;
+    int attempts_left;
+};
+
+static std::list<PendingCheck> pendingChecks;
+
+void ha_update() {
+    #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
+    if (pendingChecks.empty()) return;
+
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    unsigned long now = millis();
+    auto it = pendingChecks.begin();
+    while (it != pendingChecks.end()) {
+        if (now >= it->next_check_time) {
+            bool remove = false;
+
+            HTTPClient stateHttp;
+            String stateUrl = String(HOME_ASSISTANT_URL) + "/api/states/" + it->entity_id;
+            stateHttp.begin(stateUrl);
+            stateHttp.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
+
+            int stateCode = stateHttp.GET();
+            if (stateCode == 200) {
+                String stateResp = stateHttp.getString();
+                // Robust-ish extraction of the "state" field from the JSON response
+                int idx = stateResp.indexOf("\"state\"");
+                if (idx >= 0) {
+                    int colon = stateResp.indexOf(":", idx);
+                    if (colon >= 0) {
+                        int firstQuote = stateResp.indexOf("\"", colon);
+                        if (firstQuote >= 0) {
+                            int start = firstQuote + 1;
+                            int end = stateResp.indexOf("\"", start);
+                            if (end > start) {
+                                String state = stateResp.substring(start, end);
+                                Serial.print("Entity state: ");
+                                Serial.println(state);
+                                if (it->expected_state.length() && state == it->expected_state) {
+                                    Serial.println("State confirmed.");
+                                    remove = true;
+                                } else {
+                                    Serial.println("State not yet as expected.");
+                                }
+                            } else {
+                                Serial.println("Failed to parse state value.");
+                            }
+                        } else {
+                            Serial.println("Failed to find opening quote for state.");
+                        }
+                    } else {
+                        Serial.println("Failed to find ':' after state.");
+                    }
+                } else {
+                    Serial.println("State response (no 'state' field found).");
+                }
+            } else {
+                Serial.print("Error fetching state (HTTP ");
+                Serial.print(stateCode);
+                Serial.println(")");
+            }
+            stateHttp.end();
+
+            if (remove) {
+                it = pendingChecks.erase(it);
+            } else {
+                it->attempts_left--;
+                if (it->attempts_left <= 0) {
+                    Serial.print("State not confirmed after attempts for ");
+                    Serial.println(it->entity_id);
+                    it = pendingChecks.erase(it);
+                } else {
+                    it->next_check_time = now + 500;
+                    ++it;
+                }
+            }
+        } else {
+            ++it;
+        }
+    }
+    #endif
+}
 
 void ha_call_service(String domain, String service, String entity_id) {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
@@ -17,6 +105,7 @@ void ha_call_service(String domain, String service, String entity_id) {
         WiFi.reconnect();
         #endif
         
+        // This initial wait might still block, but it's for connection recovery
         int timeout = 0;
         while (WiFi.status() != WL_CONNECTED && timeout < 20) {
             delay(500);
@@ -49,80 +138,20 @@ void ha_call_service(String domain, String service, String entity_id) {
             Serial.println(httpResponseCode);
             Serial.println(response);
 
-            // If the service call succeeded, try to confirm the entity state via the States API
+            // If the service call succeeded, queue a state check
             if (httpResponseCode >= 200 && httpResponseCode < 300) {
                 String expected = "";
                 if (service == "turn_on") expected = "on";
                 else if (service == "turn_off") expected = "off";
 
-                Serial.println("Service call succeeded, checking entity state...");
-                bool confirmed = false;
-                String lastState = "";
-
-                const int tries = 5;
-                const int delayMs = 500;
-                for (int i = 0; i < tries; ++i) {
-                    HTTPClient stateHttp;
-                    String stateUrl = String(HOME_ASSISTANT_URL) + "/api/states/" + entity_id;
-                    stateHttp.begin(stateUrl);
-                    stateHttp.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
-
-                    int stateCode = stateHttp.GET();
-                    if (stateCode == 200) {
-                        String stateResp = stateHttp.getString();
-
-                        // Robust-ish extraction of the "state" field from the JSON response
-                        int idx = stateResp.indexOf("\"state\"");
-                        if (idx >= 0) {
-                            int colon = stateResp.indexOf(":", idx);
-                            if (colon >= 0) {
-                                int firstQuote = stateResp.indexOf("\"", colon);
-                                if (firstQuote >= 0) {
-                                    int start = firstQuote + 1;
-                                    int end = stateResp.indexOf("\"", start);
-                                    if (end > start) {
-                                        String state = stateResp.substring(start, end);
-                                        Serial.print("Entity state: ");
-                                        Serial.println(state);
-                                        lastState = state;
-                                        if (expected.length() && state == expected) {
-                                            Serial.println("State confirmed.");
-                                            confirmed = true;
-                                            stateHttp.end();
-                                            break;
-                                        } else {
-                                            Serial.println("State not yet as expected.");
-                                        }
-                                    } else {
-                                        Serial.println("Failed to parse state value.");
-                                        Serial.println(stateResp);
-                                    }
-                                } else {
-                                    Serial.println("Failed to find opening quote for state.");
-                                    Serial.println(stateResp);
-                                }
-                            } else {
-                                Serial.println("Failed to find ':' after state.");
-                                Serial.println(stateResp);
-                            }
-                        } else {
-                            Serial.println("State response (no 'state' field found):");
-                            Serial.println(stateResp);
-                        }
-                    } else {
-                        Serial.print("Error fetching state (HTTP ");
-                        Serial.print(stateCode);
-                        Serial.println(")");
-                    }
-                    stateHttp.end();
-                    delay(delayMs);
-                }
-
-                if (!confirmed) {
-                    Serial.print("State not confirmed after ");
-                    Serial.print(tries);
-                    Serial.println(" attempts. Last known state: ");
-                    Serial.println(lastState);
+                if (expected.length() > 0) {
+                    Serial.println("Service call succeeded, queuing entity state check...");
+                    PendingCheck check;
+                    check.entity_id = entity_id;
+                    check.expected_state = expected;
+                    check.next_check_time = millis() + 500;
+                    check.attempts_left = 5;
+                    pendingChecks.push_back(check);
                 }
             }
         } else {
@@ -202,74 +231,14 @@ void ha_call_service_payload(String domain, String service, String payloadJson) 
                 if (service == "turn_on") expected = "on";
                 else if (service == "turn_off") expected = "off";
 
-                Serial.println("Service call succeeded, checking entity state...");
-                bool confirmed = false;
-                String lastState = "";
-
-                const int tries = 5;
-                const int delayMs = 500;
-                for (int i = 0; i < tries; ++i) {
-                    HTTPClient stateHttp;
-                    String stateUrl = String(HOME_ASSISTANT_URL) + "/api/states/" + entity;
-                    stateHttp.begin(stateUrl);
-                    stateHttp.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
-
-                    int stateCode = stateHttp.GET();
-                    if (stateCode == 200) {
-                        String stateResp = stateHttp.getString();
-
-                        // Lightweight extraction of the "state" field from the JSON response
-                        int sidx = stateResp.indexOf("\"state\"");
-                        if (sidx >= 0) {
-                            int colon2 = stateResp.indexOf(":", sidx);
-                            if (colon2 >= 0) {
-                                int firstQuote = stateResp.indexOf("\"", colon2);
-                                if (firstQuote >= 0) {
-                                    int start = firstQuote + 1;
-                                    int end = stateResp.indexOf("\"", start);
-                                    if (end > start) {
-                                        String state = stateResp.substring(start, end);
-                                        Serial.print("Entity state: ");
-                                        Serial.println(state);
-                                        lastState = state;
-                                        if (expected.length() && state == expected) {
-                                            Serial.println("State confirmed.");
-                                            confirmed = true;
-                                            stateHttp.end();
-                                            break;
-                                        } else {
-                                            Serial.println("State not yet as expected.");
-                                        }
-                                    } else {
-                                        Serial.println("Failed to parse state value.");
-                                        Serial.println(stateResp);
-                                    }
-                                } else {
-                                    Serial.println("Failed to find opening quote for state.");
-                                    Serial.println(stateResp);
-                                }
-                            } else {
-                                Serial.println("Failed to find ':' after state.");
-                                Serial.println(stateResp);
-                            }
-                        } else {
-                            Serial.println("State response (no 'state' field found):");
-                            Serial.println(stateResp);
-                        }
-                    } else {
-                        Serial.print("Error fetching state (HTTP ");
-                        Serial.print(stateCode);
-                        Serial.println(")");
-                    }
-                    stateHttp.end();
-                    delay(delayMs);
-                }
-
-                if (!confirmed) {
-                    Serial.print("State not confirmed after ");
-                    Serial.print(tries);
-                    Serial.print(" attempts. Last known state: ");
-                    Serial.println(lastState);
+                if (expected.length() > 0) {
+                    Serial.println("Service call succeeded, queuing entity state check...");
+                    PendingCheck check;
+                    check.entity_id = entity;
+                    check.expected_state = expected;
+                    check.next_check_time = millis() + 500;
+                    check.attempts_left = 5;
+                    pendingChecks.push_back(check);
                 }
             }
         } else {
