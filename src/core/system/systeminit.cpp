@@ -6,6 +6,7 @@
 #include "core/system/global_setting.h"
 #include "core/resources/binaryttf.h"
 #include <WiFi.h>
+#include "core/system/ha_api.h"
 
 M5EPD_Canvas _initcanvas(&M5.EPD);
 
@@ -131,6 +132,8 @@ void SysInit_Start(void) {
     taskYIELD();
 
     _initcanvas.createRender(26, 128);
+
+    ha_setup();
 
     EPDGUI_Init();
     Frame_Main *frame_main = new Frame_Main();
