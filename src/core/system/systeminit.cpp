@@ -94,10 +94,22 @@ void SysInit_Start(void) {
         is_factory_test = SD.exists("/__factory_test_flag__");
     }
 
-    xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, NULL, 5, NULL, 1);
+    SemaphoreHandle_t xSemaphore_LoadingDone = xSemaphoreCreateBinary();
     
     // Give the loading task time to read the wallpaper from SD before we allow main thread to use SD again
-    delay(1500);
+    if (xSemaphore_LoadingDone != NULL) {
+        if (xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, (void*)xSemaphore_LoadingDone, 5, NULL, 1) == pdPASS) {
+            xSemaphoreTake(xSemaphore_LoadingDone, portMAX_DELAY);
+        } else {
+            // Task creation failed, no contention on SD, proceed immediately
+            log_e("Failed to create SysInit_Loading task");
+        }
+        vSemaphoreDelete(xSemaphore_LoadingDone);
+    } else {
+        // Semaphore creation failed, fallback to delay
+        xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, NULL, 5, NULL, 1);
+        delay(1500);
+    }
     
     vTaskPrioritySet(NULL, 10);
     // SysInit_UpdateInfo("Initializing SD card...");
@@ -212,6 +224,11 @@ void SysInit_Loading(void *pvParameters) {
     if (!customLoaded) {
         M5.EPD.WritePartGram4bpp(92, 182, 356, 300, ImageResource_logo_356x300);
         M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+    }
+
+    SemaphoreHandle_t xSemaphore_LoadingDone = (SemaphoreHandle_t)pvParameters;
+    if (xSemaphore_LoadingDone != NULL) {
+        xSemaphoreGive(xSemaphore_LoadingDone);
     }
 
     int i = 0;
