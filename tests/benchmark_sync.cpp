@@ -1,29 +1,16 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include <vector>
 #include <random>
 #include <future>
-#include <mutex>
-#include <condition_variable>
-
-// Simulate the loading task doing work (e.g., reading SD card)
-// Returns the time it actually took to complete the work
-int loading_task_sim(std::promise<void>& signal, int sleep_ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
-    signal.set_value(); // Signal completion (like xSemaphoreGive)
-    return sleep_ms;
-}
 
 // Simulate the current implementation: Fixed Delay
 long long scenario_fixed_delay(int loading_time_ms) {
     auto start = std::chrono::high_resolution_clock::now();
 
     // Simulate creating the task (which runs concurrently)
-    std::promise<void> signal; // Unused in fixed delay scenario really, but keeps structure similar
-    std::thread t([&signal, loading_time_ms](){
+    std::thread t([loading_time_ms](){
         std::this_thread::sleep_for(std::chrono::milliseconds(loading_time_ms));
-        signal.set_value();
     });
     t.detach();
 
