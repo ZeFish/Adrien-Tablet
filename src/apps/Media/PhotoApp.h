@@ -5,6 +5,8 @@
 #include "core/config/SystemConfig.h"
 #include "core/resources/ImageResource.h"
 #include <vector>
+#include <map>
+#include <string>
 
 class PhotoApp : public AppBase {
 public:
@@ -25,6 +27,8 @@ private:
     std::vector<String> _photos;
     int _current_photo_index = 0;
     
+    std::map<std::string, std::pair<uint16_t, uint16_t>> _image_size_cache;
+
     // UI elements
     M5EPD_Canvas* _canvas = NULL; // We use the passed canvas (g_epd_canvas for fullscreen)
     
