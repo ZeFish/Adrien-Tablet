@@ -2,6 +2,9 @@
 #include <HTTPClient.h>
 #include <list>
 #include "core/system/wifi_secrets.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
 struct PendingCheck {
     String entity_id;
@@ -10,9 +13,17 @@ struct PendingCheck {
     int attempts_left;
 };
 
-static std::list<PendingCheck> pendingChecks;
+struct HAServiceRequest {
+    String domain;
+    String service;
+    String payload;
+};
 
-void ha_update() {
+static std::list<PendingCheck> pendingChecks;
+static QueueHandle_t haQueue = NULL;
+
+// Internal function to perform the actual update logic (runs in task)
+void internal_ha_update() {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
     if (pendingChecks.empty()) return;
 
@@ -90,96 +101,18 @@ void ha_update() {
     #endif
 }
 
-void ha_call_service(String domain, String service, String entity_id) {
+// Internal function to perform service call (runs in task)
+void internal_call_service(const HAServiceRequest& req) {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
     int wifi_status = WiFi.status();
-    Serial.print("Current WiFi Status: ");
-    Serial.println(wifi_status);
-
-    if (wifi_status != WL_CONNECTED) {
-        Serial.println("WiFi was disconnected, attempting to reconnect...");
-        #ifdef HARDCODED_WIFI_SSID
-        WiFi.begin(HARDCODED_WIFI_SSID, HARDCODED_WIFI_PASSWORD);
-        #else
-        // Fallback to whatever was stored last or let WiFi library handle it
-        WiFi.reconnect();
-        #endif
-        
-        // This initial wait might still block, but it's for connection recovery
-        int timeout = 0;
-        while (WiFi.status() != WL_CONNECTED && timeout < 20) {
-            delay(500);
-            timeout++;
-            Serial.print(".");
-        }
-        Serial.println("");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String url = String(HOME_ASSISTANT_URL) + "/api/services/" + domain + "/" + service;
-        
-        String payload = "{\"entity_id\": \"" + entity_id + "\"}";
-        
-        // Debug output: show exact request
-        Serial.print("HA URL: ");
-        Serial.println(url);
-        Serial.print("Payload: ");
-        Serial.println(payload);
-
-        http.begin(url);
-        http.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
-        http.addHeader("Content-Type", "application/json");
-        
-        int httpResponseCode = http.POST(payload);
-        
-        if (httpResponseCode > 0) {
-            String response = http.getString();
-            Serial.println(httpResponseCode);
-            Serial.println(response);
-
-            // If the service call succeeded, queue a state check
-            if (httpResponseCode >= 200 && httpResponseCode < 300) {
-                String expected = "";
-                if (service == "turn_on") expected = "on";
-                else if (service == "turn_off") expected = "off";
-
-                if (expected.length() > 0) {
-                    Serial.println("Service call succeeded, queuing entity state check...");
-                    PendingCheck check;
-                    check.entity_id = entity_id;
-                    check.expected_state = expected;
-                    check.next_check_time = millis() + 500;
-                    check.attempts_left = 5;
-                    pendingChecks.push_back(check);
-                }
-            }
-        } else {
-            Serial.print("Error on sending POST: ");
-            Serial.println(httpResponseCode);
-        }
-        
-        http.end();
-    } else {
-        Serial.println("WiFi Disconnected");
-    }
-    #else
-    Serial.println("Home Assistant credentials not defined in wifi_secrets.h");
-    #endif
-}
-
-void ha_call_service_payload(String domain, String service, String payloadJson) {
-    #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
-    int wifi_status = WiFi.status();
-    Serial.print("Current WiFi Status: ");
-    Serial.println(wifi_status);
+    // Serial.print("Current WiFi Status: ");
+    // Serial.println(wifi_status);
 
     if (wifi_status != WL_CONNECTED) {
         Serial.println("WiFi was disconnected, attempting to reconnect...");
         #ifdef HARDCODED_WIFI_SSID
             WiFi.begin(HARDCODED_WIFI_SSID, HARDCODED_WIFI_PASSWORD);
         #else
-            // Fallback to whatever was stored last or let WiFi library handle it
             WiFi.reconnect();
         #endif
 
@@ -194,42 +127,42 @@ void ha_call_service_payload(String domain, String service, String payloadJson) 
 
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        String url = String(HOME_ASSISTANT_URL) + "/api/services/" + domain + "/" + service;
+        String url = String(HOME_ASSISTANT_URL) + "/api/services/" + req.domain + "/" + req.service;
 
         // Debug output: show exact request
         Serial.print("HA URL: ");
         Serial.println(url);
         Serial.print("Payload: ");
-        Serial.println(payloadJson);
+        Serial.println(req.payload);
 
         http.begin(url);
         http.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
         http.addHeader("Content-Type", "application/json");
 
-        int httpResponseCode = http.POST(payloadJson);
+        int httpResponseCode = http.POST(req.payload);
 
         if (httpResponseCode > 0) {
             String response = http.getString();
             Serial.println(httpResponseCode);
             Serial.println(response);
 
-            // If possible, extract entity_id from payload to attempt state confirmation
-            int idx = payloadJson.indexOf("\"entity_id\"");
+            // Extract entity_id from payload to attempt state confirmation
+            int idx = req.payload.indexOf("\"entity_id\"");
             String entity = "";
             if (idx >= 0) {
-                int colon = payloadJson.indexOf(':', idx);
-                int q1 = payloadJson.indexOf('\"', colon);
-                int q2 = payloadJson.indexOf('\"', q1 + 1);
+                int colon = req.payload.indexOf(':', idx);
+                int q1 = req.payload.indexOf('\"', colon);
+                int q2 = req.payload.indexOf('\"', q1 + 1);
                 if (q2 > q1) {
-                    entity = payloadJson.substring(q1 + 1, q2);
+                    entity = req.payload.substring(q1 + 1, q2);
                 }
             }
 
             // If we have an entity and the service was a turn_on/turn_off, try to confirm state
-            if (entity.length() > 0 && (service == "turn_on" || service == "turn_off")) {
+            if (entity.length() > 0 && (req.service == "turn_on" || req.service == "turn_off")) {
                 String expected = "";
-                if (service == "turn_on") expected = "on";
-                else if (service == "turn_off") expected = "off";
+                if (req.service == "turn_on") expected = "on";
+                else if (req.service == "turn_off") expected = "off";
 
                 if (expected.length() > 0) {
                     Serial.println("Service call succeeded, queuing entity state check...");
@@ -254,6 +187,69 @@ void ha_call_service_payload(String domain, String service, String payloadJson) 
     Serial.println("Home Assistant credentials not defined in wifi_secrets.h");
     #endif
 }
+
+void ha_task(void *pvParameters) {
+    while(1) {
+        HAServiceRequest* req = NULL;
+        // Wait for request up to 100ms
+        if (xQueueReceive(haQueue, &req, 100 / portTICK_PERIOD_MS) == pdPASS) {
+            if (req != NULL) {
+                internal_call_service(*req);
+                delete req;
+            }
+        }
+
+        // Handle periodic checks
+        internal_ha_update();
+    }
+}
+
+void ha_setup() {
+    if (haQueue == NULL) {
+        // Queue holds pointers to HAServiceRequest
+        haQueue = xQueueCreate(10, sizeof(HAServiceRequest*));
+        // Increase stack size to 8192 to be safe with HTTPClient and SSL
+        xTaskCreate(ha_task, "ha_task", 8192, NULL, 1, NULL);
+    }
+}
+
+void ha_update() {
+    // Logic moved to ha_task.
+    // This function is kept for backward compatibility if called from main loop,
+    // but it does nothing now.
+}
+
+void ha_call_service(String domain, String service, String entity_id) {
+    if (!haQueue) {
+        Serial.println("HA Queue not initialized, calling ha_setup...");
+        ha_setup();
+    }
+    HAServiceRequest* req = new HAServiceRequest();
+    req->domain = domain;
+    req->service = service;
+    req->payload = "{\"entity_id\": \"" + entity_id + "\"}";
+
+    if (xQueueSend(haQueue, &req, 0) != pdPASS) {
+        Serial.println("HA Queue full!");
+        delete req;
+    }
+}
+
+void ha_call_service_payload(String domain, String service, String payloadJson) {
+    if (!haQueue) {
+        ha_setup();
+    }
+    HAServiceRequest* req = new HAServiceRequest();
+    req->domain = domain;
+    req->service = service;
+    req->payload = payloadJson;
+
+    if (xQueueSend(haQueue, &req, 0) != pdPASS) {
+        Serial.println("HA Queue full!");
+        delete req;
+    }
+}
+
 String ha_get_state(String entity_id) {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
     if (WiFi.status() != WL_CONNECTED) return "";

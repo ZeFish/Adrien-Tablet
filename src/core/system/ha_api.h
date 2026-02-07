@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 
+// Initialize the HA background task
+void ha_setup();
+
 void ha_call_service(String domain, String service, String entity_id);
 // Call Home Assistant service with an arbitrary JSON payload (e.g. to run scripts with parameters)
 void ha_call_service_payload(String domain, String service, String payloadJson);
