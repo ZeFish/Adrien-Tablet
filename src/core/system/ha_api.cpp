@@ -18,6 +18,7 @@ struct ServiceRequest {
 
 static std::list<PendingCheck> pendingChecks;
 static std::list<ServiceRequest> serviceQueue;
+static const size_t MAX_SERVICE_QUEUE_SIZE = 5;
 
 // Helper function to perform the actual HTTP call
 static bool perform_service_call(String domain, String service, String payloadJson) {
@@ -56,15 +57,17 @@ static bool perform_service_call(String domain, String service, String payloadJs
                 int idx = payloadJson.indexOf("\"entity_id\"");
                 if (idx >= 0) {
                     int colon = payloadJson.indexOf(':', idx);
-                    // Find first quote after colon
-                    int q1 = -1;
-                    for (int i = colon + 1; i < payloadJson.length(); i++) {
-                        if (payloadJson[i] == '\"') { q1 = i; break; }
-                    }
-                    if (q1 != -1) {
-                        int q2 = payloadJson.indexOf('\"', q1 + 1);
-                        if (q2 > q1) {
-                            entity = payloadJson.substring(q1 + 1, q2);
+                    if (colon >= 0) {
+                        // Find first quote after colon
+                        int q1 = -1;
+                        for (int i = colon + 1; i < payloadJson.length(); i++) {
+                            if (payloadJson[i] == '\"') { q1 = i; break; }
+                        }
+                        if (q1 != -1) {
+                            int q2 = payloadJson.indexOf('\"', q1 + 1);
+                            if (q2 > q1) {
+                                entity = payloadJson.substring(q1 + 1, q2);
+                            }
                         }
                     }
                 }
@@ -205,10 +208,8 @@ void ha_call_service_payload(String domain, String service, String payloadJson) 
         req.service = service;
         req.payload = payloadJson;
 
-        // Limit queue size to 5
-        if (serviceQueue.size() >= 5) {
-             // Drop oldest or newest? User said "Queue 5".
-             // Typically we want latest commands, so we might drop the oldest.
+        // Drop oldest request if queue is full (FIFO: keep most recent commands)
+        if (serviceQueue.size() >= MAX_SERVICE_QUEUE_SIZE) {
              serviceQueue.pop_front();
         }
         serviceQueue.push_back(req);
