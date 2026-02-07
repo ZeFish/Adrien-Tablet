@@ -10,13 +10,104 @@ struct PendingCheck {
     int attempts_left;
 };
 
+struct ServiceRequest {
+    String domain;
+    String service;
+    String payload;
+};
+
 static std::list<PendingCheck> pendingChecks;
+static std::list<ServiceRequest> serviceQueue;
+
+// Helper function to perform the actual HTTP call
+static bool perform_service_call(String domain, String service, String payloadJson) {
+    #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
+    HTTPClient http;
+    String url = String(HOME_ASSISTANT_URL) + "/api/services/" + domain + "/" + service;
+
+    Serial.print("HA URL: ");
+    Serial.println(url);
+    Serial.print("Payload: ");
+    Serial.println(payloadJson);
+
+    http.begin(url);
+    http.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
+    http.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = http.POST(payloadJson);
+    bool success = false;
+
+    if (httpResponseCode > 0) {
+        String response = http.getString();
+        Serial.println(httpResponseCode);
+        Serial.println(response);
+
+        if (httpResponseCode >= 200 && httpResponseCode < 300) {
+            success = true;
+
+            // Determine if we should check state
+            String expected = "";
+            if (service == "turn_on") expected = "on";
+            else if (service == "turn_off") expected = "off";
+
+            if (expected.length() > 0) {
+                // Extract entity_id from payload
+                String entity = "";
+                int idx = payloadJson.indexOf("\"entity_id\"");
+                if (idx >= 0) {
+                    int colon = payloadJson.indexOf(':', idx);
+                    // Find first quote after colon
+                    int q1 = -1;
+                    for (int i = colon + 1; i < payloadJson.length(); i++) {
+                        if (payloadJson[i] == '\"') { q1 = i; break; }
+                    }
+                    if (q1 != -1) {
+                        int q2 = payloadJson.indexOf('\"', q1 + 1);
+                        if (q2 > q1) {
+                            entity = payloadJson.substring(q1 + 1, q2);
+                        }
+                    }
+                }
+
+                if (entity.length() > 0) {
+                    Serial.println("Service call succeeded, queuing entity state check...");
+                    PendingCheck check;
+                    check.entity_id = entity;
+                    check.expected_state = expected;
+                    check.next_check_time = millis() + 500;
+                    check.attempts_left = 5;
+                    pendingChecks.push_back(check);
+                }
+            }
+        }
+    } else {
+        Serial.print("Error on sending POST: ");
+        Serial.println(httpResponseCode);
+    }
+    http.end();
+    return success;
+    #else
+    return false;
+    #endif
+}
 
 void ha_update() {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
-    if (pendingChecks.empty()) return;
 
+    // Check WiFi Status
     if (WiFi.status() != WL_CONNECTED) return;
+
+    // Process queued service calls first
+    if (!serviceQueue.empty()) {
+        ServiceRequest req = serviceQueue.front();
+        serviceQueue.pop_front();
+        Serial.println("Processing queued service call...");
+        perform_service_call(req.domain, req.service, req.payload);
+        // Process only one per update to avoid stalling
+    }
+
+    // Process pending checks
+    if (pendingChecks.empty()) return;
 
     unsigned long now = millis();
     auto it = pendingChecks.begin();
@@ -92,77 +183,8 @@ void ha_update() {
 
 void ha_call_service(String domain, String service, String entity_id) {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
-    int wifi_status = WiFi.status();
-    Serial.print("Current WiFi Status: ");
-    Serial.println(wifi_status);
-
-    if (wifi_status != WL_CONNECTED) {
-        Serial.println("WiFi was disconnected, attempting to reconnect...");
-        #ifdef HARDCODED_WIFI_SSID
-        WiFi.begin(HARDCODED_WIFI_SSID, HARDCODED_WIFI_PASSWORD);
-        #else
-        // Fallback to whatever was stored last or let WiFi library handle it
-        WiFi.reconnect();
-        #endif
-        
-        // This initial wait might still block, but it's for connection recovery
-        int timeout = 0;
-        while (WiFi.status() != WL_CONNECTED && timeout < 20) {
-            delay(500);
-            timeout++;
-            Serial.print(".");
-        }
-        Serial.println("");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String url = String(HOME_ASSISTANT_URL) + "/api/services/" + domain + "/" + service;
-        
-        String payload = "{\"entity_id\": \"" + entity_id + "\"}";
-        
-        // Debug output: show exact request
-        Serial.print("HA URL: ");
-        Serial.println(url);
-        Serial.print("Payload: ");
-        Serial.println(payload);
-
-        http.begin(url);
-        http.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
-        http.addHeader("Content-Type", "application/json");
-        
-        int httpResponseCode = http.POST(payload);
-        
-        if (httpResponseCode > 0) {
-            String response = http.getString();
-            Serial.println(httpResponseCode);
-            Serial.println(response);
-
-            // If the service call succeeded, queue a state check
-            if (httpResponseCode >= 200 && httpResponseCode < 300) {
-                String expected = "";
-                if (service == "turn_on") expected = "on";
-                else if (service == "turn_off") expected = "off";
-
-                if (expected.length() > 0) {
-                    Serial.println("Service call succeeded, queuing entity state check...");
-                    PendingCheck check;
-                    check.entity_id = entity_id;
-                    check.expected_state = expected;
-                    check.next_check_time = millis() + 500;
-                    check.attempts_left = 5;
-                    pendingChecks.push_back(check);
-                }
-            }
-        } else {
-            Serial.print("Error on sending POST: ");
-            Serial.println(httpResponseCode);
-        }
-        
-        http.end();
-    } else {
-        Serial.println("WiFi Disconnected");
-    }
+    String payload = "{\"entity_id\": \"" + entity_id + "\"}";
+    ha_call_service_payload(domain, service, payload);
     #else
     Serial.println("Home Assistant credentials not defined in wifi_secrets.h");
     #endif
@@ -175,85 +197,44 @@ void ha_call_service_payload(String domain, String service, String payloadJson) 
     Serial.println(wifi_status);
 
     if (wifi_status != WL_CONNECTED) {
-        Serial.println("WiFi was disconnected, attempting to reconnect...");
+        Serial.println("WiFi disconnected. Queuing request and ensuring reconnection...");
+
+        // Queue request
+        ServiceRequest req;
+        req.domain = domain;
+        req.service = service;
+        req.payload = payloadJson;
+
+        // Limit queue size to 5
+        if (serviceQueue.size() >= 5) {
+             // Drop oldest or newest? User said "Queue 5".
+             // Typically we want latest commands, so we might drop the oldest.
+             serviceQueue.pop_front();
+        }
+        serviceQueue.push_back(req);
+
+        // Ensure we are trying to reconnect
+        // We cannot easily know if reconnect() is already running without internal state tracking
+        // or a specific WiFi status code (WL_DISCONNECTED usually means disconnected, not connecting).
+        // However, calling reconnect() repeatedly might be bad.
+        // But since this function is user-triggered (button press), it's probably fine to call it.
         #ifdef HARDCODED_WIFI_SSID
             WiFi.begin(HARDCODED_WIFI_SSID, HARDCODED_WIFI_PASSWORD);
         #else
-            // Fallback to whatever was stored last or let WiFi library handle it
             WiFi.reconnect();
         #endif
 
-        int timeout = 0;
-        while (WiFi.status() != WL_CONNECTED && timeout < 20) {
-            delay(500);
-            timeout++;
-            Serial.print(".");
-        }
-        Serial.println("");
+        return; // Return immediately (NON-BLOCKING)
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String url = String(HOME_ASSISTANT_URL) + "/api/services/" + domain + "/" + service;
+    // If connected, perform immediately
+    perform_service_call(domain, service, payloadJson);
 
-        // Debug output: show exact request
-        Serial.print("HA URL: ");
-        Serial.println(url);
-        Serial.print("Payload: ");
-        Serial.println(payloadJson);
-
-        http.begin(url);
-        http.addHeader("Authorization", String("Bearer ") + HOME_ASSISTANT_TOKEN);
-        http.addHeader("Content-Type", "application/json");
-
-        int httpResponseCode = http.POST(payloadJson);
-
-        if (httpResponseCode > 0) {
-            String response = http.getString();
-            Serial.println(httpResponseCode);
-            Serial.println(response);
-
-            // If possible, extract entity_id from payload to attempt state confirmation
-            int idx = payloadJson.indexOf("\"entity_id\"");
-            String entity = "";
-            if (idx >= 0) {
-                int colon = payloadJson.indexOf(':', idx);
-                int q1 = payloadJson.indexOf('\"', colon);
-                int q2 = payloadJson.indexOf('\"', q1 + 1);
-                if (q2 > q1) {
-                    entity = payloadJson.substring(q1 + 1, q2);
-                }
-            }
-
-            // If we have an entity and the service was a turn_on/turn_off, try to confirm state
-            if (entity.length() > 0 && (service == "turn_on" || service == "turn_off")) {
-                String expected = "";
-                if (service == "turn_on") expected = "on";
-                else if (service == "turn_off") expected = "off";
-
-                if (expected.length() > 0) {
-                    Serial.println("Service call succeeded, queuing entity state check...");
-                    PendingCheck check;
-                    check.entity_id = entity;
-                    check.expected_state = expected;
-                    check.next_check_time = millis() + 500;
-                    check.attempts_left = 5;
-                    pendingChecks.push_back(check);
-                }
-            }
-        } else {
-            Serial.print("Error on sending POST: ");
-            Serial.println(httpResponseCode);
-        }
-
-        http.end();
-    } else {
-        Serial.println("WiFi Disconnected");
-    }
     #else
     Serial.println("Home Assistant credentials not defined in wifi_secrets.h");
     #endif
 }
+
 String ha_get_state(String entity_id) {
     #if defined(HOME_ASSISTANT_URL) && defined(HOME_ASSISTANT_TOKEN)
     if (WiFi.status() != WL_CONNECTED) return "";
