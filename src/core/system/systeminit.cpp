@@ -99,10 +99,14 @@ void SysInit_Start(void) {
     // Give the loading task time to read the wallpaper from SD before we allow main thread to use SD again
     if (xSemaphore_LoadingDone != NULL) {
         if (xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, (void*)xSemaphore_LoadingDone, 5, NULL, 1) == pdPASS) {
-            xSemaphoreTake(xSemaphore_LoadingDone, portMAX_DELAY);
+            // Wait for loading task with timeout to prevent indefinite deadlock
+            if (xSemaphoreTake(xSemaphore_LoadingDone, pdMS_TO_TICKS(1500)) != pdTRUE) {
+                log_w("Loading task timeout, proceeding with boot");
+            }
         } else {
-            // Task creation failed, no contention on SD, proceed immediately
+            // Task creation failed, no contention on SD, but preserve boot timing assumptions
             log_e("Failed to create SysInit_Loading task");
+            delay(1500);
         }
         vSemaphoreDelete(xSemaphore_LoadingDone);
     } else {
