@@ -7,6 +7,9 @@
 #include "core/resources/binaryttf.h"
 #include <WiFi.h>
 
+// Timeout for loading task synchronization (ms)
+static const uint32_t LOADING_TIMEOUT_MS = 1500;
+
 M5EPD_Canvas _initcanvas(&M5.EPD);
 
 QueueHandle_t xQueue_Info = xQueueCreate(20, sizeof(uint32_t));
@@ -100,19 +103,19 @@ void SysInit_Start(void) {
     if (xSemaphore_LoadingDone != NULL) {
         if (xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, (void*)xSemaphore_LoadingDone, 5, NULL, 1) == pdPASS) {
             // Wait for loading task with timeout to prevent indefinite deadlock
-            if (xSemaphoreTake(xSemaphore_LoadingDone, pdMS_TO_TICKS(1500)) != pdTRUE) {
+            if (xSemaphoreTake(xSemaphore_LoadingDone, pdMS_TO_TICKS(LOADING_TIMEOUT_MS)) != pdTRUE) {
                 log_w("Loading task timeout, proceeding with boot");
             }
         } else {
             // Task creation failed, no contention on SD, but preserve boot timing assumptions
             log_e("Failed to create SysInit_Loading task");
-            delay(1500);
+            delay(LOADING_TIMEOUT_MS);
         }
         vSemaphoreDelete(xSemaphore_LoadingDone);
     } else {
         // Semaphore creation failed, fallback to delay
         xTaskCreatePinnedToCore(SysInit_Loading, "SysInit_Loading", 4096, NULL, 5, NULL, 1);
-        delay(1500);
+        delay(LOADING_TIMEOUT_MS);
     }
     
     vTaskPrioritySet(NULL, 10);
