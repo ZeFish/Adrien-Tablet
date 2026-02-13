@@ -97,7 +97,23 @@ void PhotoApp::DrawPhoto(bool update) {
     log_d("Drawing: %s", path.c_str());
     
     uint16_t w, h;
-    if (getJpegSize(SD, path.c_str(), &w, &h)) {
+    bool found_size = false;
+    std::string p_str = std::string(path.c_str());
+
+    if (_image_size_cache.count(p_str)) {
+        w = _image_size_cache[p_str].first;
+        h = _image_size_cache[p_str].second;
+        found_size = true;
+    } else if (getJpegSize(SD, path.c_str(), &w, &h)) {
+        // Simple cache eviction strategy to prevent OOM
+        if (_image_size_cache.size() > 500) {
+            _image_size_cache.clear();
+        }
+        _image_size_cache[p_str] = std::make_pair(w, h);
+        found_size = true;
+    }
+
+    if (found_size) {
         jpeg_div_t scale = JPEG_DIV_NONE;
         // Fit to screen (540x960)
         // Check if we need to scale down
